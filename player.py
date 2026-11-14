@@ -344,6 +344,22 @@ class Player:
     # ---------- queue system ----------
     def set_queue(self, urls, current_item=None):
         new_base_queue = list(urls)
+
+        # While shuffle is on, the UI regularly feeds the visible (shuffled)
+        # order back into the queue (sort sync, playlist re-opens, manual
+        # picks).  That round-trip must never replace the real unshuffled
+        # base order: otherwise turning shuffle OFF later "restores" the
+        # queue from a base that is itself the old shuffled order, and
+        # playback keeps following a hidden shuffle the user turned off.
+        # Only a genuinely different set of songs replaces the base queue.
+        if (
+            self.shuffle_enabled
+            and self._shuffle_order
+            and self._base_queue
+            and set(new_base_queue) == set(self._shuffle_order)
+        ):
+            new_base_queue = list(self._base_queue)
+
         self._base_queue = new_base_queue
 
         if current_item is not None:

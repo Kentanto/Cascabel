@@ -742,7 +742,10 @@ class MusicAppController:
         self.player.toggle_shuffle(enabled)
         self._publish_shuffle_state(self.player.shuffle_enabled)
         self.active_queue_urls = list(queue_urls)
-        self._refresh_queue_display()
+        # reset_scroll=True makes the refresh feed the visible order back
+        # into the player, so after turning shuffle off the queue follows
+        # what is on-screen instead of lingering in the old shuffle order.
+        self._refresh_queue_display(reset_scroll=True)
         self._sync_send_shuffle_state()
     
     def handle_load_playlists(self):

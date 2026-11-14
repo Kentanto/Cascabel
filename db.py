@@ -3,6 +3,8 @@ import re
 import sys
 import time
 import sqlite3
+import tempfile
+import threading
 import urllib.request
 import shutil
 import urllib.parse
@@ -113,20 +115,112 @@ def _zen_folders():
     ]
 
 
+class _CookieLoadProbe:
+    """Quiet stand-in for the YoutubeDL object yt-dlp logs through while
+    loading browser cookies, so cookies can be extracted outside a real
+    YoutubeDL instance."""
+
+    params = {"noprogress": True}
+
+    def to_screen(self, *args, **kwargs):
+        pass
+
+    def report_warning(self, *args, **kwargs):
+        pass
+
+    def deprecation_warning(self, *args, **kwargs):
+        pass
+
+    def write_debug(self, *args, **kwargs):
+        pass
+
+    def report_error(self, message, *args, **kwargs):
+        print(f"[cookies] {message}", flush=True)
+
+    def __getattr__(self, name):
+        # yt-dlp versions differ in which logger methods they call; quietly
+        # accept anything else so a missing method never breaks the check.
+        return lambda *args, **kwargs: None
+
+
+# Remembered result of the last browser-cookie extraction so the browser's
+# whole cookie jar is not re-read and re-decrypted on every yt-dlp call.
+_cookie_file_cache = {}  # browser name -> (when, cookie file path or None)
+_cookie_file_lock = threading.Lock()
+_COOKIE_FILE_TTL = 300  # seconds before cookies are re-read from the browser
+
+
+def _extract_browser_cookie_file(browser):
+    """Copy the chosen browser's cookies into a temp cookie file for yt-dlp.
+
+    On Windows, Chrome-style browsers keep their cookie database locked
+    while running, so yt-dlp cannot copy it and every search/download dies
+    with "Could not copy Chrome cookie database" (yt-dlp issue 7271).
+    Loading the cookies here once means that problem is detected up front
+    and the app can simply run without cookies instead of failing every
+    request.
+
+    Returns the path of a Netscape-format cookie file, or None when the
+    browser's cookies cannot be read right now.
+    """
+    with _cookie_file_lock:
+        now = time.time()
+        cached = _cookie_file_cache.get(browser)
+        if cached and now - cached[0] < _COOKIE_FILE_TTL:
+            return cached[1]
+
+        cookie_file = None
+        try:
+            from yt_dlp.cookies import load_cookies
+
+            jar = load_cookies(None, _browser_cookie_spec(browser), _CookieLoadProbe())
+            if jar is not None and len(jar) > 0:
+                cookie_file = os.path.join(
+                    tempfile.gettempdir(), f"music_engine_cookies_{browser}.txt"
+                )
+                jar.filename = cookie_file
+                jar.save()
+        except Exception as error:
+            # yt-dlp wraps the real problem in a generic CookieLoadError;
+            # show the original cause so the user knows what to fix.
+            reason = str(getattr(error, "__context__", None) or error)
+            print(
+                f"[cookies] could not read {browser} cookies ({reason}); "
+                "continuing without cookies. Close that browser or pick "
+                "another cookie source in Settings.",
+                flush=True,
+            )
+            cookie_file = None
+
+        _cookie_file_cache[browser] = (now, cookie_file)
+        return cookie_file
+
+
 def get_ytdlp_cookie_options():
     """yt-dlp cookie options from env vars, falling back to the saved choice.
 
     YTDLP_BROWSER / YTDLP_COOKIEFILE environment variables win; otherwise the
     browser saved in the app settings is used, so normal launches also send
     cookies and don't trip YouTube's bot wall.
+
+    An explicit cookie file always wins over a browser. Browser cookies are
+    first copied into a temp cookie file (see _extract_browser_cookie_file).
+    When the browser's cookies cannot be read (e.g. Chrome is running on
+    Windows and locks its cookie database), no cookie option is returned at
+    all so yt-dlp still runs instead of failing every request with a cookie
+    database error.
     """
     opts = {}
-    browser = os.environ.get("YTDLP_BROWSER") or get_app_setting("ytdlp_browser")
-    if browser:
-        opts["cookiesfrombrowser"] = _browser_cookie_spec(browser)
     cookiefile = os.environ.get("YTDLP_COOKIEFILE") or get_app_setting("ytdlp_cookiefile")
     if cookiefile and Path(cookiefile).exists():
         opts["cookiefile"] = str(Path(cookiefile).resolve())
+        return opts
+
+    browser = os.environ.get("YTDLP_BROWSER") or get_app_setting("ytdlp_browser")
+    if browser:
+        browser_cookie_file = _extract_browser_cookie_file(browser)
+        if browser_cookie_file:
+            opts["cookiefile"] = browser_cookie_file
     return opts
 
 
