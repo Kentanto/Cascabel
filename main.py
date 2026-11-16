@@ -2726,6 +2726,21 @@ class MusicAppController:
             self.window.queue_panel.add_items(self.current_results, preserve_order=False, current_item_source=self._playing_source())
             return
 
+        # Browsing only: a track is already loaded (playing or paused), so
+        # the search results must NOT replace the live playback queue — that
+        # is what made a plain search silently change the song: the queue
+        # became the results, so end-of-song autoplay and the Next/Prev
+        # buttons jumped into the search results instead of continuing the
+        # playlist the user was listening to.  active_queue_urls still
+        # points at the results so playing one of them (double-click, play
+        # button) starts a fresh queue built from the results.
+        if self.player.get_duration() > 0:
+            self.active_queue_urls = list(urls)
+            self.window.display_results(
+                track_items, preserve_order=True, current_item_source=self._playing_source()
+            )
+            return
+
         current_item = self.player._current_item
         if current_item not in urls:
             current_item = urls[0]
@@ -2774,11 +2789,18 @@ class MusicAppController:
         """Called when the user's sort choice changes the visible order.
 
         Keep the player queue in sync so Next / Prev / autoplay follow
-        what is shown on-screen.
+        what is shown on-screen — but only when the visible songs ARE the
+        live queue (a genuine re-sort of it).  A different set of songs
+        means the open view was switched (e.g. search results browsed while
+        a playlist song keeps playing): remember it as the next play
+        context only, and never rewrite the playing queue from it.
         """
         if not urls:
             return
         self.active_queue_urls = list(urls)
+        base_queue = self.player._base_queue or []
+        if base_queue and set(urls) != set(base_queue):
+            return
         self.player.set_queue(urls, current_item=self.player._current_item)
         self._update_now_playing()
 

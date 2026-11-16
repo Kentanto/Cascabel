@@ -823,15 +823,12 @@ class MainWindow(QMainWindow):
 
         target = self._remote_highlighted
         if target is None:
-            target = self.queue_panel.list_widget
-            if target.count():
-                self._set_highlight(target)
-                item = self.queue_panel.get_current_item()
-                if item:
-                    if item.get("type") == "playlist":
-                        self.open_playlist_requested.emit(item.get("playlist_id"))
-                    else:
-                        self.play_track_index.emit(item)
+            # Nothing is highlighted (the idle-clear removed the border), so
+            # Enter / Select must NOT silently target the queue and play its
+            # current row — that restarted or switched the song whenever
+            # Enter was pressed while browsing/searching.  The remote or
+            # keyboard user navigates first (which sets the highlight), then
+            # activates.
             return
 
         print(f"[NAV] select: {self._target_name(target)}", flush=True)
