@@ -27,8 +27,10 @@ from . import drawn_icons
 _RENDER_WIDTH = 1024
 
 # Alpha (0-255) under which a pixel counts as transparent while trimming.
-# Anything lower is an anti-aliasing ghost, not artwork.
-_TRIM_THRESHOLD = 8
+# The artwork's faintest edge feather lives below this: leaving it out keeps
+# the trimmed edge crisp, so it cannot read as a light rim once the logo is
+# scaled down to taskbar icon sizes.
+_TRIM_THRESHOLD = 64
 
 _LOGO_FILES = {
     "play": "Cascabel.svg",        # logo + play button artwork
@@ -176,6 +178,27 @@ def pause_icon(size, color=None):
     return _scaled_pixmap(square, size)
 
 
+def harden_alpha(image, threshold=128):
+    """Snap semi-transparent pixels to fully opaque or fully transparent.
+
+    Taskbar / titlebar icons sit on unpredictable backgrounds: every
+    partial-alpha pixel on the artwork's edge lets the background bleed
+    through, and on a light background the whole anti-aliased rim reads as a
+    white outline. A hard 0/255 alpha edge has no feather, so nothing can
+    bleed through on any background - at the small sizes where this is
+    applied the crisp edge also just looks better.
+    """
+    result = image.convertToFormat(QImage.Format.Format_ARGB32)
+    opaque = 0xFF000000
+    for y in range(result.height()):
+        for x in range(result.width()):
+            pixel = result.pixel(x, y)
+            alpha = (pixel >> 24) & 0xFF
+            if 0 < alpha < 255:
+                result.setPixel(x, y, (pixel | opaque) if alpha >= threshold else 0)
+    return result
+
+
 def app_icon():
     """Window/taskbar icon built from the trimmed Cascabel logo."""
     square = _trimmed_square("play")
@@ -184,15 +207,21 @@ def app_icon():
     source = QPixmap.fromImage(square)
     icon = QIcon()
     for size in (16, 24, 32, 48, 64, 128, 256):
-        icon.addPixmap(
-            source.scaled(
-                size,
-                size,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
+        pixmap = source.scaled(
+            size,
+            size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
         )
+        if size <= 64:
+            pixmap = QPixmap.fromImage(harden_alpha(pixmap.toImage()))
+        icon.addPixmap(pixmap)
     return icon
+
+
+def trimmed_logo_image():
+    """The margin-trimmed, square-padded logo as a QImage (None if unavailable)."""
+    return _trimmed_square("play")
 
 
 def logo_pixmap(size):

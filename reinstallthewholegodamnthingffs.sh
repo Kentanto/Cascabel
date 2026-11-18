@@ -235,28 +235,33 @@ mkdir -p "$DESKTOP_DIR"
 # Drop a pre-rename menu entry so the launcher doesn't list two apps.
 rm -f "$DESKTOP_DIR/MusicEngine.desktop"
 DESKTOP_FILE="$DESKTOP_DIR/Cascabel.desktop"
-if [ ! -f "$DESKTOP_FILE" ]; then
-    msg "Creating the application menu entry..."
-    # The trimmed square Cascabel logo ships inside the build; fall back to
-    # a generic icon if it can't be located for some reason.
-    ICON_PATH="$(find "$INSTALL_DIR" -type f -name 'CascabelIcon.svg' -print -quit 2>/dev/null)"
-    [ -n "$ICON_PATH" ] || ICON_PATH="audio-x-generic"
-    cat > "$DESKTOP_FILE" <<DESKTOP_ENTRY
+
+# Pre-render the logo as icon-theme PNGs (16-256 px) so the desktop never
+# has to scale the big SVG down itself - that one-shot downscale is what
+# left a faint white rim around the tiny taskbar icon.
+ICON_NAME="cascabel"
+python3 make_icons.py || {
+    msg "warning: could not pre-render the icon PNGs (continuing)"
+    ICON_NAME="audio-x-generic"
+}
+
+msg "Creating the application menu entry..."
+cat > "$DESKTOP_FILE" <<DESKTOP_ENTRY
 [Desktop Entry]
 Type=Application
 Name=Cascabel
 Comment=Playlists, YouTube and Spotify-synced music player
 Exec=$INSTALL_DIR/Cascabel
-Icon=$ICON_PATH
+Icon=$ICON_NAME
 StartupWMClass=Cascabel
 Terminal=false
 Categories=AudioVideo;Audio;Music;
 DESKTOP_ENTRY
-    chmod +x "$DESKTOP_FILE"
-fi
+chmod +x "$DESKTOP_FILE"
 
-# Update desktop application database
+# Refresh the desktop caches so the new entry and icons show up right away.
 have update-desktop-database && update-desktop-database "$DESKTOP_DIR"
+have kbuildsycoca6 && kbuildsycoca6 >/dev/null 2>&1
 
 # --------------------------------------------------------------- done
 
