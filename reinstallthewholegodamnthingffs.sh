@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Rebuild and install Music Engine.
+# Rebuild and install Cascabel.
 #
 # The same script covers two situations:
 #
@@ -19,15 +19,15 @@
 REPO_URL="${REPO_URL:-https://github.com/Kentanto/Music_player.git}"
 BRANCH="${BRANCH:-main}"
 DEFAULT_DIR="$HOME/Music/Music_player"
-INSTALL_DIR="$HOME/.local/opt/MusicEngine"
+INSTALL_DIR="$HOME/.local/opt/Cascabel"
 DESKTOP_DIR="$HOME/.local/share/applications"
 
 # Python dependencies, pinned to the versions the working setups use.
 # (spotipy pulls in requests/urllib3 by itself.)
 PY_PACKAGES="PySide6==6.12.0 yt-dlp==2026.8.19 spotipy==2.26.0 dbus-fast==5.2.0 pyinstaller"
 
-msg()  { echo "[music-engine] $*"; }
-fail() { echo "[music-engine] ERROR: $*" >&2; exit 1; }
+msg()  { echo "[cascabel] $*"; }
+fail() { echo "[cascabel] ERROR: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # --------------------------------------------------------------- system packages
@@ -147,7 +147,7 @@ cd "$PROJECT_DIR" || fail "cannot enter $PROJECT_DIR"
 # --------------------------------------------------------------- update from git
 
 if [ "$CAN_PULL" = yes ]; then
-    echo "Checking for latest Music Engine files..."
+    echo "Checking for latest Cascabel files..."
 
     # Make sure we're on the main branch
     git checkout "$BRANCH" || fail "could not switch to the '$BRANCH' branch"
@@ -198,38 +198,57 @@ echo "Cleaning previous build..."
 # Clean previous builds
 rm -rf build dist
 
-echo "Building Music Engine..."
+echo "Building Cascabel..."
 
 # Build with PyInstaller
-python3 -m PyInstaller --clean MusicEngine.spec || fail "PyInstaller build failed"
+python3 -m PyInstaller --clean Cascabel.spec || fail "PyInstaller build failed"
 
-echo "Installing Music Engine..."
+echo "Installing Cascabel..."
 
-# Remove previous installation
-rm -rf "$INSTALL_DIR"
+# Remove previous installation (also any pre-rename Music Engine install)
+rm -rf "$INSTALL_DIR" "$HOME/.local/opt/MusicEngine"
 
 # Create installation directory
 mkdir -p "$INSTALL_DIR"
 
 # Install new build
-cp -r dist/MusicEngine/* "$INSTALL_DIR/" || fail "could not copy the build into $INSTALL_DIR"
+cp -r dist/Cascabel/* "$INSTALL_DIR/" || fail "could not copy the build into $INSTALL_DIR"
 
 # Make executable
-chmod +x "$INSTALL_DIR/MusicEngine"
+chmod +x "$INSTALL_DIR/Cascabel"
+
+# --------------------------------------------------------------- data folder
+
+# The app used to keep its library in ~/.local/share/music_engine; move an
+# existing one to the new ~/.local/share/cascabel location (stored paths are
+# relative, so the library keeps working after the move).
+OLD_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/music_engine"
+NEW_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/cascabel"
+if [ -d "$OLD_DATA" ] && [ ! -d "$NEW_DATA" ]; then
+    msg "Moving the library folder to $NEW_DATA..."
+    mv "$OLD_DATA" "$NEW_DATA" || msg "warning: could not move the old data folder (continuing)"
+fi
 
 # --------------------------------------------------------------- menu entry
 
 mkdir -p "$DESKTOP_DIR"
-DESKTOP_FILE="$DESKTOP_DIR/MusicEngine.desktop"
+# Drop a pre-rename menu entry so the launcher doesn't list two apps.
+rm -f "$DESKTOP_DIR/MusicEngine.desktop"
+DESKTOP_FILE="$DESKTOP_DIR/Cascabel.desktop"
 if [ ! -f "$DESKTOP_FILE" ]; then
     msg "Creating the application menu entry..."
+    # The trimmed square Cascabel logo ships inside the build; fall back to
+    # a generic icon if it can't be located for some reason.
+    ICON_PATH="$(find "$INSTALL_DIR" -type f -name 'CascabelIcon.svg' -print -quit 2>/dev/null)"
+    [ -n "$ICON_PATH" ] || ICON_PATH="audio-x-generic"
     cat > "$DESKTOP_FILE" <<DESKTOP_ENTRY
 [Desktop Entry]
 Type=Application
-Name=Music Engine
+Name=Cascabel
 Comment=Playlists, YouTube and Spotify-synced music player
-Exec=$INSTALL_DIR/MusicEngine
-Icon=audio-x-generic
+Exec=$INSTALL_DIR/Cascabel
+Icon=$ICON_PATH
+StartupWMClass=Cascabel
 Terminal=false
 Categories=AudioVideo;Audio;Music;
 DESKTOP_ENTRY
@@ -241,11 +260,11 @@ have update-desktop-database && update-desktop-database "$DESKTOP_DIR"
 
 # --------------------------------------------------------------- done
 
-echo "Music Engine rebuilt and installed successfully."
+echo "Cascabel rebuilt and installed successfully."
 echo ""
 echo "  Start it from the application menu, or run:"
-echo "    $INSTALL_DIR/MusicEngine"
+echo "    $INSTALL_DIR/Cascabel"
 echo ""
 echo "  Library tip: to move a library between machines, copy music.db and the"
 echo "  playlists folder into the installed app's data folder"
-echo "  (~/.local/share/music_engine) — paths are stored portably."
+echo "  (~/.local/share/cascabel) — paths are stored portably."

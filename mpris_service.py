@@ -1,7 +1,7 @@
 """MPRIS D-Bus bridge for Linux.
 
 Exports the application as an MPRIS media player on the session bus
-(org.mpris.MediaPlayer2.musicplayer) so the desktop's media keys, media
+(org.mpris.MediaPlayer2.cascabel) so the desktop's media keys, media
 tray widgets, and remote control integrations (KDE Connect, playerctl...)
 can drive playback even when the app is not focused.
 
@@ -36,7 +36,7 @@ except ImportError:
     HAS_MPRIS_DEPS = False
 
 MPRIS_PATH = "/org/mpris/MediaPlayer2"
-BASE_BUS_NAME = "org.mpris.MediaPlayer2.musicplayer"
+BASE_BUS_NAME = "org.mpris.MediaPlayer2.cascabel"
 NO_TRACK_PATH = "/org/mpris/MediaPlayer2/TrackList/NoTrack"
 PLAYER_INTERFACE = "org.mpris.MediaPlayer2.Player"
 
@@ -128,11 +128,11 @@ class _RootInterface(ServiceInterface):
 
     @dbus_property(access=PropertyAccess.READ)
     def Identity(self) -> 's':
-        return "Music Player"
+        return "Cascabel"
 
     @dbus_property(access=PropertyAccess.READ)
     def DesktopEntry(self) -> 's':
-        return "musicplayer"
+        return "Cascabel"
 
     @dbus_property(access=PropertyAccess.READ)
     def SupportedUriSchemes(self) -> 'as':

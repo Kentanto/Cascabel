@@ -7,7 +7,7 @@ Every instance with Network Sync enabled:
   it is missing there, probes every address on the local /24 subnet once so
   the kernel fills the ARP table with every machine that is awake,
 - accepts a connection only after the other side identifies itself with a
-  hello handshake, so only real Music Engine instances sync up,
+  hello handshake, so only real Cascabel instances sync up,
 - exchanges small JSON commands (play / pause / resume / seek / stop plus a
   periodic state heartbeat) so either instance can trigger the other, a
   "finished" handshake at the end of each track so synced machines play every
@@ -188,7 +188,7 @@ class SyncEngine(QObject):
         super().__init__(parent)
         self.own_id = local_mac() or "00:00:00:00:00:00"
         self._thread = _SyncThread(
-            self, self.own_id, socket.gethostname() or "music engine",
+            self, self.own_id, socket.gethostname() or "cascabel",
             peers, int(port or DEFAULT_SYNC_PORT),
         )
 
@@ -473,7 +473,7 @@ class _SyncThread(QThread):
 
     def _connected_socket(self, conn):
         self._connections.append(conn)
-        self._queue_send(conn, "hello", {"app": "MusicEngine", "port": self.port})
+        self._queue_send(conn, "hello", {"app": "Cascabel", "port": self.port})
         conn.hello_sent = True
 
     def _finish_connect(self, sock):
@@ -597,12 +597,12 @@ class _SyncThread(QThread):
             self._engine.remote_command.emit(kind, message)
 
     def _handle_hello(self, conn, message):
-        if message.get("app") != "MusicEngine":
+        if message.get("app") != "Cascabel":
             self._close(conn, "not-app")
             if conn.target_mac:
                 self._set_status(
                     conn.target_mac,
-                    f"handshake failed (not a Music Engine at {conn.remote_addr})",
+                    f"handshake failed (not a Cascabel at {conn.remote_addr})",
                 )
             return
         peer_mac = normalize_mac(message.get("sender"))
@@ -610,7 +610,7 @@ class _SyncThread(QThread):
             self._close(conn, "not-configured")
             return
         if not conn.hello_sent:
-            self._queue_send(conn, "hello", {"app": "MusicEngine", "port": self.port})
+            self._queue_send(conn, "hello", {"app": "Cascabel", "port": self.port})
             conn.hello_sent = True
         self._register(conn, peer_mac, message.get("name") or peer_mac)
 

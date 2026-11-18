@@ -176,7 +176,7 @@ def _extract_browser_cookie_file(browser):
             jar = load_cookies(None, _browser_cookie_spec(browser), _CookieLoadProbe())
             if jar is not None and len(jar) > 0:
                 cookie_file = os.path.join(
-                    tempfile.gettempdir(), f"music_engine_cookies_{browser}.txt"
+                    tempfile.gettempdir(), f"cascabel_cookies_{browser}.txt"
                 )
                 jar.filename = cookie_file
                 jar.save()
@@ -237,7 +237,14 @@ def data_path(relative_path):
         if os.name == "nt":
             BASE_DIR = Path(sys.executable).resolve().parent
         else:
-            BASE_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "music_engine"
+            data_root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+            data_dir = data_root / "cascabel"
+            old_dir = data_root / "music_engine"
+            # Keep a pre-rename install's library working instead of silently
+            # starting an empty one (the install script migrates the folder).
+            if not data_dir.exists() and old_dir.exists():
+                data_dir = old_dir
+            BASE_DIR = data_dir
     else:
         BASE_DIR = Path(__file__).resolve().parent
 

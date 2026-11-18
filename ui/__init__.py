@@ -1,4 +1,4 @@
-"""PySide6 UI components for Music Engine"""
+"""PySide6 UI components for Cascabel"""
 
 from .main_window import MainWindow
 

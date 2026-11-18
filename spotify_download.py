@@ -1,4 +1,4 @@
-"""Import a Spotify playlist into the Music Engine library."""
+"""Import a Spotify playlist into the Cascabel library."""
 
 import os
 import re

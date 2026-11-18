@@ -33,7 +33,7 @@ import subprocess
 import sys
 import time
 
-APP_NAME = "Music Engine"
+APP_NAME = "Cascabel"
 INHIBIT_REASON = "Fullscreen playback"
 
 # org.gnome.SessionManager Inhibit flags: 4 = suspend, 8 = idle.

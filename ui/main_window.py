@@ -20,6 +20,7 @@ from .fullscreen_player import FullscreenPlayer
 from .eq_visualizer import EQVisualizer
 from .toast import ToastManager
 from .touch_gestures import TouchGestureHandler
+from .logo_assets import app_icon
 
 
 class MainWindow(QMainWindow):
@@ -58,7 +59,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Music Engine")
+        self.setWindowTitle("Cascabel")
+        self.setWindowIcon(app_icon())
         self.resize(1200, 800)
         self._touch_mode = False
         self.init_ui()

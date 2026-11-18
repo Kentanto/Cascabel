@@ -3073,6 +3073,10 @@ if __name__ == "__main__":
     init_db()
     
     app = QApplication(sys.argv)
+    # Cascabel branding: the application name and desktop file name make
+    # Wayland taskbars match the running app to its menu entry and icon.
+    app.setApplicationName("Cascabel")
+    app.setDesktopFileName("Cascabel")
     
     # Create main window with new modular UI
     window = MainWindow()

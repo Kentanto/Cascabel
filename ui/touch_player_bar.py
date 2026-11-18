@@ -3,7 +3,8 @@ from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QL
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QIcon
 from .clickable_slider import FocusAwareSlider
-from .drawn_icons import next_icon, pause_icon, play_icon, prev_icon, shuffle_icon
+from .drawn_icons import next_icon, prev_icon, shuffle_icon
+from .logo_assets import pause_icon, play_icon
 from .wedge_volume import WedgeVolumeSlider
 
 class TouchPlayerBar(QWidget):
@@ -86,7 +87,9 @@ class TouchPlayerBar(QWidget):
         r1.addWidget(self.prev_btn)
         self.play_pause_btn = QPushButton()
         self.play_pause_btn.setObjectName("touchPlayBtn")
-        self.play_pause_btn.setIconSize(QSize(52, 52))
+        # The Cascabel artwork fills the button face; only the border ring
+        # stays visible so hover / press feedback can still be seen.
+        self.play_pause_btn.setIconSize(QSize(112, 112))
         self._update_pp_icon()
         self.play_pause_btn.clicked.connect(self.play_pause_clicked.emit)
         self.play_pause_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
@@ -232,7 +235,8 @@ class TouchPlayerBar(QWidget):
         self._update_pp_icon()
 
     def _update_pp_icon(self):
-        icon = pause_icon(52, "#ffffff") if self._playing else play_icon(52, "#ffffff")
+        n = self.play_pause_btn.iconSize().width()
+        icon = pause_icon(n) if self._playing else play_icon(n)
         self.play_pause_btn.setIcon(QIcon(icon))
 
     def _on_seek_focus(self, focused):

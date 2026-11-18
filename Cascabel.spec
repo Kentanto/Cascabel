@@ -14,10 +14,13 @@ hiddenimports = (
     + ["retry_failed"]
     + ["PySide6.QtMultimedia", "retry_failed"]
     + ["keep_awake", "PySide6.QtDBus"]
+    + ["PySide6.QtSvg"]  # renders the Cascabel logo / play-pause artwork
 )
 
 datas = [
     (str(project_dir / "ui" / "styles.qss"), "ui"),
+    # Cascabel logo artwork: app icon plus the play/pause button SVGs.
+    (str(project_dir / "ui" / "logo"), "ui/logo"),
 ]
 
 ffmpeg_dir = project_dir / "ffmpeg" / "bin"
@@ -47,7 +50,7 @@ exe = EXE(
     analysis.scripts,
     analysis.binaries,
     [],
-    name="MusicEngine",
+    name="Cascabel",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -62,5 +65,5 @@ coll = COLLECT(
     analysis.datas,
     strip=False,
     upx=use_upx,
-    name="MusicEngine",
+    name="Cascabel",
 )

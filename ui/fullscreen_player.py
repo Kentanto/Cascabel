@@ -17,7 +17,8 @@ from keep_awake import ScreenWakeLock
 
 from .clickable_slider import FocusAwareSlider
 from .eq_visualizer import EQVisualizer
-from .drawn_icons import next_icon, pause_icon, play_icon, prev_icon, shuffle_icon
+from .drawn_icons import next_icon, prev_icon, shuffle_icon
+from .logo_assets import app_icon, pause_icon, play_icon
 
 
 class EQProgressBadge(QWidget):
@@ -74,7 +75,8 @@ class FullscreenPlayer(QWidget):
         # never worked on Wayland.
         self._wake_lock = ScreenWakeLock()
 
-        self.setWindowTitle("Music Engine")
+        self.setWindowTitle("Cascabel")
+        self.setWindowIcon(app_icon())
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_DeleteOnClose, False)
         self.setMouseTracking(True)
@@ -186,7 +188,9 @@ class FullscreenPlayer(QWidget):
         self.play_pause_button = QPushButton()
         self.play_pause_button.setObjectName("fullscreenPlayControl")
         self.play_pause_button.setToolTip("Play or pause")
-        self.play_pause_button.setIconSize(QSize(24, 24))
+        # The Cascabel artwork fills the button face; only a slim rim stays
+        # visible so hover / press feedback can still be seen.
+        self.play_pause_button.setIconSize(QSize(52, 52))
         self.set_play_pause_state(False)
         self.play_pause_button.clicked.connect(self.play_pause_clicked.emit)
         transport_controls.addWidget(self.play_pause_button)
@@ -266,7 +270,8 @@ class FullscreenPlayer(QWidget):
 
     def set_play_pause_state(self, playing):
         self._is_playing = bool(playing)
-        icon = pause_icon(24, "#101010") if self._is_playing else play_icon(24, "#101010")
+        n = self.play_pause_button.iconSize().width()
+        icon = pause_icon(n) if self._is_playing else play_icon(n)
         self.play_pause_button.setIcon(QIcon(icon))
 
     def set_shuffle_state(self, enabled):
