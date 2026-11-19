@@ -4,9 +4,9 @@ import time
 import warnings
 from pathlib import Path
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QInputDialog,
-    QLabel, QLineEdit, QMessageBox, QProgressDialog, QPushButton, QSlider,
-    QTextEdit, QVBoxLayout,
+    QApplication, QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout,
+    QInputDialog, QLabel, QLineEdit, QMessageBox, QProgressDialog, QPushButton,
+    QSlider, QTextEdit, QVBoxLayout,
 )
 from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
@@ -44,7 +44,16 @@ from db import (
     resolve_stored_path,
 )
 from metadata_fetcher import MetadataFetcher
-from spotify_download import SpotifyImportWorker, SpotifyLinkWorker, SpotifySyncWorker
+from spotify_download import (
+    SpotifyApiTestWorker,
+    SpotifyImportWorker,
+    SpotifyLinkWorker,
+    SpotifySyncWorker,
+    get_spotify_credentials,
+    save_spotify_credentials,
+    spotify_api_configured,
+    spotify_api_status_text,
+)
 from retry_failed import RetryFailedWorker, parse_failures, clear_failure_log
 from cec_remote import CecRemoteListener
 from mocute_listener import MocuteListener
@@ -179,6 +188,7 @@ class MusicAppController:
         self.spotify_import_worker = None
         self.spotify_link_worker = None
         self.spotify_sync_worker = None
+        self._spotify_api_test_workers = []  # SpotifyApiTestWorker refs (see _start_spotify_api_test)
         self.add_song_worker = None
         self.retry_failed_worker = None
         self.redownload_worker = None
@@ -776,18 +786,77 @@ class MusicAppController:
         set_app_setting("last_view", "playlists")
         print(f"Loaded {len(playlists)} playlists + All Songs ({len(all_songs)} tracks)")
 
+    def _ask_spotify_url(self, title, label, placeholder="https://open.spotify.com/playlist/"):
+        """Ask for a Spotify playlist URL.
+
+        When no Spotify API is saved in Settings yet, the window also asks for
+        the Client ID and Secret and saves them into Settings automatically,
+        so the import/link works right away. Returns (url, ok).
+        """
+        if spotify_api_configured():
+            url, ok = QInputDialog.getText(self.window, title, label, text=placeholder)
+            return url.strip(), ok
+
+        dialog = QDialog(self.window)
+        dialog.setWindowTitle(title)
+        dialog.setMinimumWidth(480)
+        layout = QVBoxLayout(dialog)
+
+        form = QFormLayout()
+        url_edit = QLineEdit(placeholder, dialog)
+        form.addRow(label, url_edit)
+        api_id_edit = QLineEdit(dialog)
+        api_secret_edit = QLineEdit(dialog)
+        form.addRow("Spotify Client ID:", api_id_edit)
+        form.addRow("Spotify Client Secret:", api_secret_edit)
+        layout.addLayout(form)
+
+        hint = QLabel(
+            "No Spotify API is saved in Settings yet. Paste your own Client ID "
+            "and Secret here — they are saved into Settings automatically.",
+            dialog,
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        def try_accept():
+            if not api_id_edit.text().strip() or not api_secret_edit.text().strip():
+                QMessageBox.warning(
+                    dialog,
+                    title,
+                    "A Spotify API is needed to read the playlist.\n"
+                    "Enter both the Client ID and the Client Secret "
+                    "(create a free app at developer.spotify.com to get them), "
+                    "or save them in Settings first.",
+                )
+                return
+            dialog.accept()
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        cancel_btn = QPushButton("Cancel", dialog)
+        cancel_btn.clicked.connect(dialog.reject)
+        buttons.addWidget(cancel_btn)
+        ok_btn = QPushButton("Continue", dialog)
+        ok_btn.clicked.connect(try_accept)
+        buttons.addWidget(ok_btn)
+        layout.addLayout(buttons)
+
+        if not dialog.exec():
+            return "", False
+
+        # Auto-save the entered API into Settings and check it in the
+        # background, so Settings can show the OK / error debug code.
+        save_spotify_credentials(api_id_edit.text(), api_secret_edit.text())
+        self._start_spotify_api_test()
+        return url_edit.text().strip(), True
+
     def handle_import_list(self):
         """Ask for a Spotify URL and import it without blocking the UI."""
         if self.spotify_import_worker and self.spotify_import_worker.isRunning():
             return
 
-        playlist_url, ok = QInputDialog.getText(
-            self.window,
-            "Import List",
-            "Spotify playlist URL:",
-            text="https://open.spotify.com/playlist/",
-        )
-        playlist_url = playlist_url.strip()
+        playlist_url, ok = self._ask_spotify_url("Import List", "Spotify playlist URL:")
         if not ok or not playlist_url:
             return
         if "spotify.com/playlist/" not in playlist_url:
@@ -866,13 +935,9 @@ class MusicAppController:
         if self.spotify_link_worker and self.spotify_link_worker.isRunning():
             return
 
-        playlist_url, ok = QInputDialog.getText(
-            self.window,
-            "Link Spotify",
-            "Spotify playlist URL to watch for new songs:",
-            text="https://open.spotify.com/playlist/",
+        playlist_url, ok = self._ask_spotify_url(
+            "Link Spotify", "Spotify playlist URL to watch for new songs:"
         )
-        playlist_url = playlist_url.strip()
         if not ok or not playlist_url:
             return
         if "spotify.com/playlist/" not in playlist_url:
@@ -966,11 +1031,37 @@ class MusicAppController:
     def _on_link_failed(self, reason):
         QMessageBox.warning(self.window, "Link Spotify", f"Link failed: {reason}")
 
+    def _start_spotify_api_test(self, on_done=None):
+        """Check the saved Spotify API credentials once, off the UI thread.
+
+        The check records the tiny debug code in Settings either way;
+        *on_done* (optional) receives the new status text — the Settings
+        dialog uses it to refresh its status line live.
+        """
+        if not spotify_api_configured():
+            if on_done:
+                on_done(spotify_api_status_text())
+            return
+        worker = SpotifyApiTestWorker(self.window)
+        if on_done:
+            worker.tested.connect(lambda _ok, text: on_done(text))
+
+        def _cleanup():
+            if worker in self._spotify_api_test_workers:
+                self._spotify_api_test_workers.remove(worker)
+
+        worker.finished.connect(_cleanup)
+        self._spotify_api_test_workers.append(worker)
+        worker.start()
+
     def start_spotify_sync(self):
         """Check every linked Spotify playlist once, right after startup."""
         if self.spotify_sync_worker and self.spotify_sync_worker.isRunning():
             return
         if not get_spotify_links():
+            return
+        if not spotify_api_configured():
+            # No Spotify API entered in Settings → the sync is never attempted.
             return
         self.spotify_sync_worker = SpotifySyncWorker(self.window)
         self.spotify_sync_worker.progress.connect(
@@ -1763,6 +1854,60 @@ class MusicAppController:
 
         layout.addSpacing(12)
 
+        # ── Spotify API ──
+        layout.addWidget(QLabel("Spotify API (Client ID + Client Secret):", dialog))
+        api_form = QFormLayout()
+        api_id_edit = QLineEdit(dialog)
+        api_secret_edit = QLineEdit(dialog)
+        saved_api_id, saved_api_secret = get_spotify_credentials()
+        api_id_edit.setText(saved_api_id or "")
+        api_secret_edit.setText(saved_api_secret or "")
+        api_form.addRow("Client ID:", api_id_edit)
+        api_form.addRow("Client Secret:", api_secret_edit)
+        layout.addLayout(api_form)
+
+        # Tiny debug line: shows whether the entered API works and, when it
+        # does not, a short code saying why (E-AUTH, E-NET, ...).
+        api_status_label = QLabel(dialog)
+        api_status_label.setStyleSheet("color: #9a9a9a; font-size: 10px;")
+        api_status_label.setWordWrap(True)
+
+        def refresh_api_status(text=None):
+            api_status_label.setText(
+                "Spotify API status: "
+                + (text if text is not None else spotify_api_status_text())
+            )
+
+        refresh_api_status()
+        layout.addWidget(api_status_label)
+
+        last_saved_api = [api_id_edit.text().strip(), api_secret_edit.text().strip()]
+
+        def save_api_credentials():
+            client_id = api_id_edit.text().strip()
+            client_secret = api_secret_edit.text().strip()
+            if client_id == last_saved_api[0] and client_secret == last_saved_api[1]:
+                return  # nothing changed
+            save_spotify_credentials(client_id, client_secret)
+            last_saved_api[0], last_saved_api[1] = client_id, client_secret
+            refresh_api_status()
+            # Prove the pair works in the background; the status line above
+            # updates with the OK / E-AUTH / E-NET result when it finishes.
+            self._start_spotify_api_test(refresh_api_status)
+
+        api_id_edit.editingFinished.connect(save_api_credentials)
+        api_secret_edit.editingFinished.connect(save_api_credentials)
+        api_hint = QLabel(
+            "Optional. Without a Spotify API, importing, linking and the "
+            "startup sync simply stay off. Create a free app at "
+            "developer.spotify.com to get the Client ID and Secret.",
+            dialog,
+        )
+        api_hint.setWordWrap(True)
+        layout.addWidget(api_hint)
+
+        layout.addSpacing(12)
+
         # ── Buttons ──
         buttons = QHBoxLayout()
         reset_btn = QPushButton("Reset Defaults", dialog)
@@ -1820,6 +1965,9 @@ class MusicAppController:
         if self.spotify_sync_worker and self.spotify_sync_worker.isRunning():
             self.spotify_sync_worker.requestInterruption()
             self.spotify_sync_worker.wait(3000)
+        for worker in list(self._spotify_api_test_workers):
+            # Tiny one-shot credential checks; just let them finish.
+            worker.wait(2000)
         if self.retry_failed_worker and self.retry_failed_worker.isRunning():
             # Same cooperative stop between songs as the Spotify workers.
             self.retry_failed_worker.requestInterruption()

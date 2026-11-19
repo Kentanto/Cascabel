@@ -8,8 +8,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
+import requests
 import spotipy
 from PySide6.QtCore import QThread, Signal
+from spotipy.cache_handler import MemoryCacheHandler
+from spotipy.exceptions import SpotifyException, SpotifyOauthError
 from spotipy.oauth2 import SpotifyClientCredentials
 from yt_dlp import YoutubeDL
 
@@ -22,19 +25,27 @@ from db import (
     add_spotify_link,
     create_playlist,
     download_audio_to_folder,
+    get_app_setting,
     get_playlist_by_id,
     get_spotify_links,
     get_spotify_track_statuses,
     mark_spotify_tracks_seen,
+    set_app_setting,
     set_spotify_link_checked,
     set_spotify_track_status,
 )
 from retry_failed import PLAYLIST_NOTICE_PREFIX
 
-# These values are portable across operating systems. Keep them in this small
-# configuration section so the importer does not depend on shell variables.
-SPOTIFY_CLIENT_ID = "bdb2e21d2b384b31bea7e4c622140d81"
-SPOTIFY_CLIENT_SECRET = "49efa61c03a941a3b4abbe5370cee39c"
+# The Spotify API credentials are not part of the source anymore: the user
+# enters their own Client ID and Secret in Settings (the Link Spotify and
+# Import List windows ask for them too and save them into Settings
+# automatically). With no pair saved, every Spotify feature simply stays off
+# instead of failing with a cryptic error; a pair Spotify refuses is reported
+# in Settings as a tiny debug code (E-AUTH, E-NET, ...).
+SPOTIFY_ID_SETTING = "spotify_client_id"
+SPOTIFY_SECRET_SETTING = "spotify_client_secret"
+SPOTIFY_STATUS_SETTING = "spotify_api_status"
+SPOTIFY_STATUS_DETAIL_SETTING = "spotify_api_status_detail"
 PLAYLIST_NAME = "Spotify Import"
 MIN_VIDEO_DURATION = 45
 MAX_VIDEO_DURATION = 10 * 60
@@ -64,11 +75,132 @@ def _playlist_id(url):
     return url.split("playlist/", 1)[1].split("?", 1)[0] if "playlist/" in url else url
 
 
+class MissingSpotifyApiError(RuntimeError):
+    """No Spotify API credentials are saved in Settings."""
+
+
+class SpotifyApiError(RuntimeError):
+    """Spotify API failure carrying a tiny debug code shown in Settings."""
+
+    def __init__(self, code, message):
+        super().__init__(f"[{code}] {message}")
+        self.code = code
+
+
+def get_spotify_credentials():
+    """Return (client_id, client_secret) saved in Settings, or (None, None)."""
+    client_id = (get_app_setting(SPOTIFY_ID_SETTING, "") or "").strip()
+    client_secret = (get_app_setting(SPOTIFY_SECRET_SETTING, "") or "").strip()
+    if not client_id or not client_secret:
+        return None, None
+    return client_id, client_secret
+
+
+def save_spotify_credentials(client_id, client_secret):
+    """Save (or clear, when both are empty) the user's own Spotify API pair."""
+    set_app_setting(SPOTIFY_ID_SETTING, (client_id or "").strip())
+    set_app_setting(SPOTIFY_SECRET_SETTING, (client_secret or "").strip())
+    # A freshly saved pair has not been proven yet, so any old status is stale.
+    _record_api_status("", "")
+
+
+def spotify_api_configured():
+    """True when a Client ID and Secret pair is saved in Settings."""
+    return get_spotify_credentials() != (None, None)
+
+
+def _record_api_status(code, detail=""):
+    """Store the tiny debug code the Settings dialog shows."""
+    set_app_setting(SPOTIFY_STATUS_SETTING, code)
+    set_app_setting(SPOTIFY_STATUS_DETAIL_SETTING, (detail or "")[:200])
+
+
+def spotify_api_status_text():
+    """One-line status for Settings, e.g. 'E-AUTH: Spotify rejected the key'."""
+    if not spotify_api_configured():
+        return "not entered (Spotify sync stays off)"
+    code = (get_app_setting(SPOTIFY_STATUS_SETTING, "") or "").strip()
+    detail = (get_app_setting(SPOTIFY_STATUS_DETAIL_SETTING, "") or "").strip()
+    if not code:
+        return "entered, not checked yet"
+    return f"{code}: {detail}" if detail else code
+
+
 def _spotify_client():
+    """Build a spotipy client from the credentials saved in Settings.
+
+    The token is only cached in memory, so changed or removed credentials
+    take effect on the very next call instead of reusing a stale .cache
+    token from an earlier pair. Raises MissingSpotifyApiError when nothing
+    is saved, so callers can show a clear message instead of a confusing
+    spotipy stack trace.
+    """
+    client_id, client_secret = get_spotify_credentials()
+    if not client_id or not client_secret:
+        raise MissingSpotifyApiError("No Spotify API entered in Settings")
     return spotipy.Spotify(auth_manager=SpotifyClientCredentials(
-        client_id=SPOTIFY_CLIENT_ID,
-        client_secret=SPOTIFY_CLIENT_SECRET,
+        client_id=client_id,
+        client_secret=client_secret,
+        cache_handler=MemoryCacheHandler(),
     ))
+
+
+def _api_call(func, *args, **kwargs):
+    """Run one Spotify API call and record a tiny status code for Settings.
+
+    'OK' is recorded when the call works. Credentials Spotify refuses record
+    'E-AUTH'; connection trouble records 'E-NET'. A playlist that does not
+    exist (404) is the link's problem, not the API's, so the status is
+    untouched and a plain error is raised instead.
+    """
+    try:
+        result = func(*args, **kwargs)
+    except SpotifyOauthError as error:
+        _record_api_status("E-AUTH", "Spotify rejected the API credentials")
+        raise SpotifyApiError("E-AUTH", "Spotify rejected the API credentials") from error
+    except SpotifyException as error:
+        if error.http_status == 404:
+            raise RuntimeError("Spotify playlist not found") from error
+        if error.http_status in (400, 401, 403):
+            _record_api_status("E-AUTH", f"HTTP {error.http_status}: {error.msg}")
+            raise SpotifyApiError(
+                "E-AUTH", f"Spotify rejected the API credentials (HTTP {error.http_status})"
+            ) from error
+        _record_api_status("E-NET", f"HTTP {error.http_status}: {error.msg}")
+        raise SpotifyApiError("E-NET", f"Spotify API error (HTTP {error.http_status})") from error
+    except requests.RequestException as error:
+        _record_api_status("E-NET", "could not reach Spotify")
+        raise SpotifyApiError("E-NET", f"Could not reach Spotify ({error})") from error
+    _record_api_status("OK", "working")
+    return result
+
+
+def validate_spotify_credentials():
+    """Test the saved credentials by requesting a fresh token.
+
+    Returns True when Spotify accepts them, and records the tiny debug code
+    either way, so Settings can show why the API is unusable.
+    """
+    client_id, client_secret = get_spotify_credentials()
+    if not client_id or not client_secret:
+        return False
+    try:
+        SpotifyClientCredentials(
+            client_id=client_id,
+            client_secret=client_secret,
+            cache_handler=MemoryCacheHandler(),
+        ).get_access_token(check_cache=False)
+    except SpotifyOauthError:
+        _record_api_status("E-AUTH", "Spotify rejected the API credentials")
+        return False
+    except requests.RequestException:
+        _record_api_status("E-NET", "could not reach Spotify")
+        return False
+    except Exception as error:  # anything unexpected still shows in Settings
+        _record_api_status("E-OTHER", str(error)[:200])
+        return False
+    _record_api_status("OK", "working")
+    return True
 
 
 def _title_is_filtered(title, track_name, artist_name):
@@ -218,10 +350,10 @@ def get_best_youtube_result(track_name, artist_name, expected_seconds=None):
 
 
 def _tracks(client, playlist_url):
-    results = client.playlist_tracks(_playlist_id(playlist_url))
+    results = _api_call(client.playlist_tracks, _playlist_id(playlist_url))
     tracks = list(results.get("items") or [])
     while results.get("next"):
-        results = client.next(results)
+        results = _api_call(client.next, results)
         tracks.extend(results.get("items") or [])
     return tracks
 
@@ -275,7 +407,7 @@ def import_playlist(playlist_url, target_playlist_id=None, progress=None, should
     """
     spotify_id = _playlist_id(playlist_url)
     client = _spotify_client()
-    spotify_meta = client.playlist(spotify_id, fields="name")
+    spotify_meta = _api_call(client.playlist, spotify_id, fields="name")
     spotify_name = spotify_meta.get("name") or PLAYLIST_NAME
 
     if target_playlist_id is not None:
@@ -345,7 +477,7 @@ def link_playlist(playlist_url, program_playlist_id):
     """
     spotify_id = _playlist_id(playlist_url)
     client = _spotify_client()
-    spotify_meta = client.playlist(spotify_id, fields="name")
+    spotify_meta = _api_call(client.playlist, spotify_id, fields="name")
     spotify_name = spotify_meta.get("name") or PLAYLIST_NAME
 
     playlist_row = get_playlist_by_id(program_playlist_id)
@@ -380,6 +512,11 @@ def sync_linked_playlists(progress=None, should_stop=None):
     """
     links = get_spotify_links()
     if not links:
+        return []
+
+    if not spotify_api_configured():
+        # No Spotify API entered in Settings → the sync is never attempted.
+        print("[spotify-sync] no Spotify API entered in Settings; sync skipped", flush=True)
         return []
 
     client = _spotify_client()
@@ -529,3 +666,17 @@ class SpotifySyncWorker(QThread):
             self.completed.emit(results)
         except Exception as error:
             self.failed.emit(str(error))
+
+
+class SpotifyApiTestWorker(QThread):
+    """Tests the Spotify API credentials saved in Settings off the UI thread.
+
+    The tiny debug code it records is what the Settings dialog shows, so the
+    user can see why their API does (or does not) work.
+    """
+
+    tested = Signal(bool, str)  # ok, status text
+
+    def run(self):
+        ok = validate_spotify_credentials()
+        self.tested.emit(ok, spotify_api_status_text())

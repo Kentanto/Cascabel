@@ -13,7 +13,7 @@
 #      and adds the application-menu entry.
 #
 # Optional overrides:
-#   REPO_URL=<url> BRANCH=<name> bash reinstallthewholegodamnthingffs.sh
+#   REPO_URL=<url> BRANCH=<name> bash '(re)installthewholegodamnthingffs.sh'
 #
 
 REPO_URL="${REPO_URL:-https://github.com/Kentanto/Music_player.git}"

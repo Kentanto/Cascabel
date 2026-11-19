@@ -1,8 +1,90 @@
-all these changes will be linked to a button changing the layout for a touch panel:
-- make the program more touch panel friendly, changing the locations of buttons to take up more space of the already empty space more efficiently making them bigger and different shapes to fit the empty space better. the volume bar will look like a increasing size trianlge like bar rather than boring straight bar its bottom angled perfectly horisontal and large edge is shorter than the rest of the walls to make that iconic volume bar shape, it will take pretty much all the space between where it sits now all the way until the start of the eq, just not coliding, make sure to give breathing room. the other buttons go above it in a neat manner taking good space where from top left id like a circle prev then big circle play then circle next, unde those between the volume and the media buttons are shuffle in a larger rectanlge format and the fullscreen in the same format. 
-- the buttons top left gets moves in a hamburger menu all the way to the right side and the thumbail photo of the songs will take up the rest of the top left space filling it in, the search bar will shrink to fit more of the thumbnail upwards the hamburger menu uses same button sizes as a right click in the queue does. the seek bar will move to jsut under the newly sized and possition image thumbnail and just above the media buttons spanning from edge to queue view giving breathing room ofc, this will give more room the later instructions of making search bares bigger and all that
-- the queue view song items is pretty small, and there is a lot of space to the right of the songs, make the height of each individual song twice as bigg with text and images in there scaling to join the double sizing.
-- the search bar for youtube and queue needs to be around 1.5 times bigger in height same with the sorting option button and its options, the reverse sort order also needs to be bigger.
-- find any other good optimization for a touch panel to work better, its a surface pro 5 with linux cinnamon mint with touch drivers configured and gestures are used, but dont touch multi touch gestures except for the bottom feature under this
-- i would like to to add the feature of swiping right on a song in the queue list to queue it and left removes it from queue(very imnportant not deleting it from the list permanently, basicly just stops it from playing on that particular queue order until its refreshed)
-- the music program needs to prevent the pc from blacking out the screen after a little while, this hsould only stop it from happening when fullscreen is active, jsut every once a while send a wakeup call to the screen when fullscreen mode is active
+# Cascabel
+
+A Qt-based desktop music player: it plays your local library, pulls songs
+from YouTube, and keeps Spotify playlists in sync — all in one queue-driven,
+touch-friendly interface.
+
+## What it does
+
+- **Library and playlists** — songs live in a portable SQLite database
+  (`music.db`); playlists can be created and imported, the queue can be
+  sorted and searched, and tracks show cover art and fetched metadata.
+- **YouTube** — search and stream straight from YouTube with a local stream
+  cache, or download songs into the library. Browser cookies can be reused
+  to get past YouTube's "confirm you're not a bot" wall.
+- **Spotify sync** — link a Spotify playlist once; Cascabel imports it and
+  re-checks it on every start, adding new songs automatically. Bring your
+  own free Spotify API (Client ID + Secret from developer.spotify.com):
+  enter it in Settings, or right in the Link Spotify window — with no API
+  saved, all Spotify features simply stay off.
+- **Failed downloads** — imports that fail are tracked per playlist and can
+  be retried in one click from the Failed Songs dialog (or with
+  `retry_failed.py` from a terminal).
+- **Playback** — shuffle, seek, volume, an equalizer-style visualizer, and a
+  fullscreen now-playing view with big cover art, a tap-anywhere EQ progress
+  bar, and an idle mode. While fullscreen is active, the screen is kept
+  awake.
+- **Touch mode** — big buttons and a wedge-shaped volume bar sized for a
+  touch panel: swipe a queue entry right to play it next, swipe it left to
+  drop it from the queue. The Cascabel logo is the play/pause artwork.
+- **Desktop integration** — media keys and media widgets work even when the
+  app is not focused (MPRIS on Linux, native media keys on Windows).
+- **Network sync** — two Cascabel instances on the same network can play in
+  sync; play, pause and seek are mirrored both ways.
+- **Remotes** — HDMI-CEC support for Raspberry Pi installs (control playback
+  with the TV remote) and MOCUTE-052 gamepad support via raw input.
+
+## Installing (Linux)
+
+Everything is handled by one script:
+
+```bash
+bash '(re)installthewholegodamnthingffs.sh'
+```
+
+It works from an existing checkout and on a fresh machine alike:
+
+- installs any missing system packages (git, python3 + venv, pip, ffmpeg and
+  the Qt runtime libraries) via apt, dnf, pacman or zypper,
+- clones the repository to `~/Music/Music_player` if it is not already there
+  (otherwise it just pulls the latest changes),
+- creates a `.venv` with the pinned Python dependencies,
+- builds the app with PyInstaller,
+- installs it to `~/.local/opt/Cascabel`,
+- pre-renders the taskbar / menu icon and creates the application-menu entry,
+- moves an old "Music Engine" library to the new location, if one exists.
+
+Re-run the same script any time to update to the latest version and rebuild.
+After it finishes, start Cascabel from the application menu, or run
+`~/.local/opt/Cascabel` directly.
+
+Optional overrides:
+
+```bash
+REPO_URL=<url> BRANCH=<branch> bash '(re)installthewholegodamnthingffs.sh'
+```
+
+Note for atomic distros (Bazzite / Silverblue style): system packages
+installed by the script apply after a reboot.
+
+Windows: the app itself runs on Windows (bundled ffmpeg, native media keys),
+but the install script is Linux-only.
+
+## Running from source
+
+```bash
+source .venv/bin/activate
+python3 main.py
+```
+
+This uses the same virtual environment and dependencies the install script
+sets up.
+
+## Where the data lives
+
+- Run from a checkout: the project folder itself (`music.db`, `playlists/`).
+- Installed app: `~/.local/share/cascabel`.
+
+To move a library between machines, copy `music.db` and the `playlists`
+folder into that data folder — all stored paths are portable.
+
