@@ -46,7 +46,7 @@ It works from an existing checkout and on a fresh machine alike:
 
 - installs any missing system packages (git, python3 + venv, pip, ffmpeg and
   the Qt runtime libraries) via apt, dnf, pacman or zypper,
-- clones the repository to `~/Music/Music_player` if it is not already there
+- clones the repository to `~/Music/Cascabel` if it is not already there
   (otherwise it just pulls the latest changes),
 - creates a `.venv` with the pinned Python dependencies,
 - builds the app with PyInstaller,

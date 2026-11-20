@@ -4,7 +4,7 @@
 #
 # The same script covers two situations:
 #
-#   1. An existing checkout (e.g. the Raspberry Pi's ~/Music/Music_player):
+#   1. An existing checkout (e.g. the Raspberry Pi's ~/Music/Cascabel):
 #      behaves exactly like before — update from GitHub, build, install.
 #   2. A fresh Linux machine: installs any missing system packages
 #      (git / python3 / venv / ffmpeg / Qt libraries), clones the
@@ -16,9 +16,9 @@
 #   REPO_URL=<url> BRANCH=<name> bash '(re)installthewholegodamnthingffs.sh'
 #
 
-REPO_URL="${REPO_URL:-https://github.com/Kentanto/Music_player.git}"
+REPO_URL="${REPO_URL:-https://github.com/Kentanto/Cascabel.git}"
 BRANCH="${BRANCH:-main}"
-DEFAULT_DIR="$HOME/Music/Music_player"
+DEFAULT_DIR="$HOME/Music/Cascabel"
 INSTALL_DIR="$HOME/.local/opt/Cascabel"
 DESKTOP_DIR="$HOME/.local/share/applications"
 
